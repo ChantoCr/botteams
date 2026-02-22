@@ -18,69 +18,78 @@ class DispatcherBot extends ActivityHandler {
 
     this.onMessage(async (context, next) => {
       const parsed = parseMessage(context.activity.text || "");
-      const userName = getUserName(context);
+      const identity = getIdentity(context);
 
-      if (parsed.type === "next") {
-        await this.handleNextCommand(context, parsed, userName);
-      } else if (parsed.type === "status") {
-        await this.handleStatusCommand(context, parsed, userName);
-      } else {
-        await context.sendActivity(HELP_MESSAGE);
+      try {
+        if (parsed.type === "next") {
+          await this.handleNextCommand(context, parsed, identity);
+        } else if (parsed.type === "status") {
+          await this.handleStatusCommand(context, parsed, identity);
+        } else {
+          await context.sendActivity(HELP_MESSAGE);
+        }
+      } catch (error) {
+        console.error("Error handling message", error);
+        await context.sendActivity("⚠️ Error al procesar comando. Intenta nuevamente.");
       }
 
       await next();
     });
   }
 
-  async handleNextCommand(context, parsed, userName) {
+  async handleNextCommand(context, parsed, identity) {
     if (!parsed.valid) {
       await context.sendActivity(`⚠️ Entrada inválida.\n${HELP_MESSAGE}`);
       return;
     }
 
-    if (!isLeader(userName)) {
+    if (!isLeader(identity)) {
       await context.sendActivity(denyMessage);
       return;
     }
 
-    const result = assignmentService.assignNext({
+    const result = await assignmentService.assignNext({
       tags: parsed.tags,
       taskName: parsed.taskName,
-      requestedBy: userName,
+      requestedBy: identity,
     });
 
-    if (!result.ok && result.reason === "no_available") {
-      await context.sendActivity("⚠️ No hay agentes disponibles (available).");
+    if (!result.ok && result.message) {
+      await context.sendActivity(result.message);
+      return;
+    }
+
+    if (!result.ok) {
+      await context.sendActivity("⚠️ No se pudo completar la asignación.");
       return;
     }
 
     await context.sendActivity(
-      `✅ Asignado a: ${result.assignedAgent.name} | Tags: ${result.tags.join(", "
-      )} | Tarea: "${result.taskName}"`
+      `✅ Asignado a: ${result.assignedAgent.displayName} | Tags: ${result.tags.join(", ")} | Tarea: \"${result.taskName}\"`
     );
   }
 
-  async handleStatusCommand(context, parsed, userName) {
+  async handleStatusCommand(context, parsed, identity) {
     if (parsed.isStatusQuery) {
-      const status = assignmentService.getUserStatus(userName);
+      const status = await assignmentService.getUserStatus(identity);
       if (!status) {
-        await context.sendActivity("⚠️ No te encontré en la cola local.");
+        await context.sendActivity("⚠️ No te encontré en QueueTable.");
         return;
       }
 
       await context.sendActivity(
-        `📌 ${status.name} | Estado: ${status.status.toUpperCase()} | Queue: ${status.queueOrder} | Boost: ${status.boostMode}\nTop cola: ${assignmentService.getQueueSnapshot()}`
+        `📌 ${status.displayName} | Estado: ${status.status.toUpperCase()} | Queue: ${status.queueOrder} | Boost: ${status.boostMode}\nTop cola: ${await assignmentService.getQueueSnapshot()}`
       );
       return;
     }
 
-    const result = assignmentService.setUserStatus({
-      userName,
+    const result = await assignmentService.setUserStatus({
+      identity,
       newStatus: parsed.command,
     });
 
     if (!result.ok && result.reason === "user_not_found") {
-      await context.sendActivity("⚠️ No te encontré en la cola local.");
+      await context.sendActivity("⚠️ No te encontré en QueueTable.");
       return;
     }
 
@@ -103,8 +112,14 @@ class DispatcherBot extends ActivityHandler {
   }
 }
 
-function getUserName(context) {
-  return context.activity.from?.name || context.activity.from?.id || "";
+function getIdentity(context) {
+  const from = context.activity.from || {};
+  const channelData = context.activity.channelData || {};
+
+  return {
+    displayName: from.name || from.id || "",
+    aadObjectId: from.aadObjectId || channelData?.from?.aadObjectId || "",
+  };
 }
 
 module.exports.DispatcherBot = DispatcherBot;
