@@ -104,7 +104,7 @@ class DispatcherBot extends ActivityHandler {
 }
 
 function getUserName(context) {
-  return context.activity.from?.name || context.activity.from?.id || "";
+  return context.activity.from?.id || context.activity.from?.name || "";
 }
 
 module.exports.DispatcherBot = DispatcherBot;
