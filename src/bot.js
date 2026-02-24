@@ -17,24 +17,33 @@ class DispatcherBot extends ActivityHandler {
     this.conversationState = conversationState;
 
     this.onMessage(async (context, next) => {
-      const parsed = parseMessage(context.activity.text || "");
-      const identity = getIdentity(context);
+  const parsed = parseMessage(context.activity.text || "");
 
-      try {
-        if (parsed.type === "next") {
-          await this.handleNextCommand(context, parsed, identity);
-        } else if (parsed.type === "status") {
-          await this.handleStatusCommand(context, parsed, identity);
-        } else {
-          await context.sendActivity(HELP_MESSAGE);
-        }
-      } catch (error) {
-        console.error("Error handling message", error);
-        await context.sendActivity("⚠️ Error al procesar comando. Intenta nuevamente.");
-      }
+  const from = context.activity.from || {};
+  const identity = {
+    id: from.id || "",
+    name: from.name || "",
+    displayName: from.name || from.displayName || from.id || "",
+    aadObjectId: from.aadObjectId || "",
+  };
 
-      await next();
-    });
+  console.log("[leader-check] identity =", identity);
+
+  try {
+    if (parsed.type === "next") {
+      await this.handleNextCommand(context, parsed, identity);
+    } else if (parsed.type === "status") {
+      await this.handleStatusCommand(context, parsed, identity);
+    } else {
+      await context.sendActivity(HELP_MESSAGE);
+    }
+  } catch (error) {
+    console.error("Error handling message", error);
+    await context.sendActivity("⚠️ Error al procesar comando. Intenta nuevamente.");
+  }
+
+  await next();
+});
   }
 
   async handleNextCommand(context, parsed, identity) {
@@ -47,6 +56,11 @@ class DispatcherBot extends ActivityHandler {
       await context.sendActivity(denyMessage);
       return;
     }
+
+    /*if (!isLeader(identity)) {
+      await context.sendActivity(denyMessage);
+      return;
+    }*/
 
     const result = await assignmentService.assignNext({
       tags: parsed.tags,
@@ -117,7 +131,9 @@ function getIdentity(context) {
   const channelData = context.activity.channelData || {};
 
   return {
-    displayName: from.name || from.id || "",
+    id: from.id || "",
+    name: from.name || "",
+    displayName: from.name || from.displayName || from.id || "",
     aadObjectId: from.aadObjectId || channelData?.from?.aadObjectId || "",
   };
 }
